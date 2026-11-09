@@ -28,8 +28,9 @@ ENV PYTHONUNBUFFERED=1
 ENV PORT=5555
 ENV HOST=0.0.0.0
 
-# Exponer el puerto del servidor
+# Exponer los puertos del servidor
 EXPOSE 5555
+EXPOSE 8080
 
 # Ejecutar el servidor
 CMD ["python", "server.py"]

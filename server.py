@@ -31,10 +31,12 @@ def decode_line(line):
 
 
 class GameServer:
-    def __init__(self, host="0.0.0.0", port=5555):
+    def __init__(self, host="0.0.0.0", port=5555, alt_port=None):
         self.host = host
         self.port = port
+        self.alt_port = alt_port
         self.server_socket = None
+        self.alt_server_socket = None
         self.clients = {}
         self.lock = threading.Lock()
         self.running = False
@@ -60,8 +62,21 @@ class GameServer:
         self.server_socket.listen(5)
         self.running = True
         print(f"Servidor escuchando en {self.host}:{self.port}")
-        accept_thread = threading.Thread(target=self._accept_connections, daemon=True)
+        accept_thread = threading.Thread(target=self._accept_connections, args=(self.server_socket,), daemon=True)
         accept_thread.start()
+
+        if self.alt_port and self.alt_port != self.port:
+            try:
+                self.alt_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.alt_server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self.alt_server_socket.bind((self.host, self.alt_port))
+                self.alt_server_socket.listen(5)
+                print(f"Servidor escuchando tambien en puerto secundario {self.host}:{self.alt_port}")
+                alt_thread = threading.Thread(target=self._accept_connections, args=(self.alt_server_socket,), daemon=True)
+                alt_thread.start()
+            except Exception as e:
+                print(f"Aviso puerto secundario {self.alt_port}: {e}")
+
         game_thread = threading.Thread(target=self._game_loop, daemon=True)
         game_thread.start()
         try:
@@ -70,12 +85,14 @@ class GameServer:
         except KeyboardInterrupt:
             self.running = False
             self.server_socket.close()
+            if self.alt_server_socket:
+                self.alt_server_socket.close()
 
-    def _accept_connections(self):
+    def _accept_connections(self, sock):
         while self.running:
             try:
-                self.server_socket.settimeout(1.0)
-                client_socket, addr = self.server_socket.accept()
+                sock.settimeout(1.0)
+                client_socket, addr = sock.accept()
                 print(f"Conexion desde {addr}")
                 client_thread = threading.Thread(
                     target=self._handle_client, args=(client_socket, addr), daemon=True)
@@ -540,11 +557,14 @@ class GameServer:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Servidor de Bomberman Multijugador (Nube o Local)")
+    env_port = int(os.environ.get("PORT", "5555"))
+    default_alt = 5555 if env_port != 5555 else 8080
     parser.add_argument("--host", default=os.environ.get("HOST", "0.0.0.0"), help="Host IP para escuchar (por defecto 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "5555")), help="Puerto para escuchar (por defecto 5555 o variable PORT)")
+    parser.add_argument("--port", type=int, default=env_port, help="Puerto principal para escuchar")
+    parser.add_argument("--alt_port", type=int, default=default_alt, help="Puerto secundario para escuchar")
     args = parser.parse_args()
 
-    server = GameServer(host=args.host, port=args.port)
+    server = GameServer(host=args.host, port=args.port, alt_port=args.alt_port)
     try:
         server.start()
     except KeyboardInterrupt:
